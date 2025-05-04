@@ -1,88 +1,90 @@
 services:
   api:
-    # build:
+    # build: # Keep commented out if using pre-built image
     #   context: .
     #   dockerfile: Dockerfile.multi
     #   target: api-build
-    image: ghcr.io/danny-avila/librechat-dev-api:latest
-    container_name: LibreChat-API
-    ports:
-      - 3080:3080
+    image: ghcr.io/danny-avila/librechat-dev-api:latest # Or your preferred image
+    container_name: LibreChat-API # Optional: Coolify might override
+    # ports: # REMOVED - Coolify proxy handles external ports
+    #   - 3080:3080
     depends_on:
       - mongodb
       - rag_api
+      - meilisearch # Added dependency for clarity, though API might handle startup waits
+      - vectordb    # Added dependency for clarity
     restart: always
     extra_hosts:
-    - "host.docker.internal:host-gateway"
+      - "host.docker.internal:host-gateway"
     env_file:
-      - .env
+      - .env # Coolify will merge/override with its UI variables
     environment:
-      - HOST=0.0.0.0
+      - HOST=0.0.0.0 # Important: Listen on all interfaces inside the container
       - NODE_ENV=production
       - MONGO_URI=mongodb://mongodb:27017/LibreChat
       - MEILI_HOST=http://meilisearch:7700
-      - RAG_PORT=${RAG_PORT:-8000}
+      - RAG_PORT=${RAG_PORT:-8000} # Keep using env var if needed
       - RAG_API_URL=http://rag_api:${RAG_PORT:-8000}
+      # --- Ensure any variables needed for API to serve client files are set ---
+      # --- (Check LibreChat docs if unsure) ---
     volumes:
       - type: bind
-        source: ./librechat.yaml
+        source: ./librechat.yaml # Make sure this exists in your repo root
         target: /app/librechat.yaml
-      - ./images:/app/client/public/images
-      - ./uploads:/app/uploads
-      - ./logs:/app/api/logs
+        read_only: true # Good practice for config files
+      - ./images:/app/client/public/images # Make sure ./images exists if needed
+      - ./uploads:/app/uploads # Make sure ./uploads exists if needed
+      - ./logs:/app/api/logs # Make sure ./logs exists if needed
 
-  client:
-    image: nginx:1.27.0-alpine
-    container_name: LibreChat-NGINX
-    #ports:
-    # - 80:80
-    # - 443:443
-    depends_on:
-      - api
-    restart: always
-    volumes:
-      - ./client/nginx.conf:/etc/nginx/conf.d/default.conf
+  # client: # REMOVED ENTIRE SERVICE - API service should serve the client build
+
   mongodb:
-    container_name: chat-mongodb
-    # ports:  # Uncomment this to access mongodb from outside docker, not safe in deployment
-    #   - 27018:27017
-    image: mongo
+    container_name: chat-mongodb # Optional
+    image: mongo:latest # Use a specific version if preferred, e.g., mongo:6.0
     restart: always
     volumes:
-      - ./data-node:/data/db
+      - mongodb_data:/data/db # CHANGED to named volume
     command: mongod --noauth
+
   meilisearch:
-    container_name: chat-meilisearch
-    image: getmeili/meilisearch:v1.12.3
+    container_name: chat-meilisearch # Optional
+    image: getmeili/meilisearch:v1.12.3 # Use specific version
     restart: always
-    # ports: # Uncomment this to access meilisearch from outside docker
-    #   - 7700:7700 # if exposing these ports, make sure your master key is not the default value
     env_file:
-      - .env
+      - .env # Coolify will merge/override
     environment:
       - MEILI_HOST=http://meilisearch:7700
       - MEILI_NO_ANALYTICS=true
+      # - MEILI_MASTER_KEY= # Set this via Coolify Secrets/Env Vars if not default!
     volumes:
-      - ./meili_data_v1.12:/meili_data
+      - meili_data:/meili_data # CHANGED to named volume
+
   vectordb:
-    image: ankane/pgvector:latest
+    image: ankane/pgvector:latest # Consider a specific version tag
+    container_name: chat-vectordb # Optional
     environment:
+      # Consider moving these to .env or Coolify secrets
       POSTGRES_DB: mydatabase
       POSTGRES_USER: myuser
       POSTGRES_PASSWORD: mypassword
     restart: always
     volumes:
-      - pgdata2:/var/lib/postgresql/data
+      - pgdata2:/var/lib/postgresql/data # This was already a named volume, OK
+
   rag_api:
-    image: ghcr.io/danny-avila/librechat-rag-api-dev-lite:latest
+    image: ghcr.io/danny-avila/librechat-rag-api-dev-lite:latest # Or your preferred image
+    container_name: chat-rag-api # Optional
     environment:
       - DB_HOST=vectordb
       - RAG_PORT=${RAG_PORT:-8000}
+      # --- Add OPENAI_API_KEY and other RAG env vars here or in Coolify UI ---
     restart: always
     depends_on:
       - vectordb
     env_file:
-      - .env
+      - .env # Coolify will merge/override
 
 volumes:
-  pgdata2:
+  pgdata2: # Already defined, OK
+  mongodb_data: # ADDED definition for mongodb
+  meili_data: # ADDED definition for meilisearch
